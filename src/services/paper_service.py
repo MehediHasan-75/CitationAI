@@ -2,7 +2,6 @@
 from fastapi import UploadFile, HTTPException, status
 from sqlalchemy.orm import Session
 import logging
-import os
 
 from src.repositories.paper_repository import PaperRepository
 from src.repositories.chunk_repository import ChunkRepository
@@ -10,12 +9,11 @@ from src.services.file_service import file_service
 from src.services.pdf_processor import pdf_processor
 from src.services.chunking_service import intelligent_chunker
 from src.services.embedding_service import embedding_service
-from src.services.qdrant_service import qdrant_service
+from src.services.vector_store import qdrant_service
 from src.utils.validators import validate_pdf_file, extract_filename_stem
-from src.models.database import Paper, Chunk
+from src.database.models import Paper, Chunk
 
 logger = logging.getLogger(__name__)
-
 
 class PaperService:
     """Service for paper processing business logic"""
@@ -30,12 +28,8 @@ class PaperService:
         self.paper_repo = paper_repo
         self.chunk_repo = chunk_repo
     
-    async def process_and_save_paper(self, file: UploadFile) -> dict:
-        """
-        End-to-end paper processing pipeline.
-        
-        Orchestrates: validation → storage → processing → chunking → embedding
-        """
+    def process_and_save_paper(self, file: UploadFile) -> dict:  # ✅ Changed from async def to def
+        """End-to-end paper processing pipeline."""
         
         # 1️⃣ Validate
         validate_pdf_file(file)
@@ -47,8 +41,8 @@ class PaperService:
         if existing:
             return self._duplicate_response(existing)
         
-        # 3️⃣ Save file
-        file_path = await file_service.save_upload(file)
+        # 3️⃣ Save file (remove await)
+        file_path = file_service.save_upload(file)  # ✅ Removed await
         
         try:
             # 4️⃣ Process PDF
@@ -74,7 +68,11 @@ class PaperService:
         
         except Exception as e:
             file_service.delete_file(file_path)  # Cleanup
-            raise
+            logger.error(f"❌ Paper processing failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Paper processing failed: {str(e)}"
+            )
     
     def _process_pdf(self, file_path: str):
         """Process PDF and extract metadata"""
@@ -209,8 +207,9 @@ class PaperService:
             "title": paper.title,
             "status": "already_exists",
             "message": "This paper was already uploaded",
-            "uploaded": paper.upload_date.isoformat()
+            "uploaded": paper.created_at.isoformat()  # ✅ Changed from upload_date to created_at
         }
+
     
     def _success_response(self, paper: Paper, processed_doc, chunk_count: int) -> dict:
         """Format successful upload response"""

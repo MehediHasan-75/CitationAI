@@ -217,7 +217,7 @@ class Paper(BaseModel, TimestampMixin):
     # ========================================================================
     
     chunks = relationship(
-        "chunk",
+        "Chunk",
         back_populates="paper",
         cascade="all, delete-orphan",
         # Why cascade="all, delete-orphan":

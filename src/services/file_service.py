@@ -7,14 +7,13 @@ from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-
 class FileService:
     """Service for file storage and management"""
     
     def __init__(self):
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     
-    async def save_upload(self, file: UploadFile) -> str:
+    def save_upload(self, file: UploadFile) -> str:  # ✅ Changed from async def to def
         """
         Save uploaded file to disk with unique filename.
         
@@ -27,8 +26,8 @@ class FileService:
         file_path = os.path.join(settings.UPLOAD_DIR, f"{uuid.uuid4()}.pdf")
         
         try:
-            async with file as f:
-                content = await f.read()
+            # ✅ Removed async with - read synchronously
+            content = file.file.read()
             
             with open(file_path, "wb") as buffer:
                 buffer.write(content)
@@ -43,7 +42,7 @@ class FileService:
                 detail=f"File save failed: {str(e)}"
             )
     
-    def delete_file(self, file_path: str) -> None:
+    def delete_file(self, file_path: str) -> None:  # ✅ Already sync, good to go
         """Delete file from disk"""
         try:
             if os.path.exists(file_path):
@@ -51,7 +50,6 @@ class FileService:
                 logger.info(f"✅ Deleted file: {file_path}")
         except Exception as e:
             logger.warning(f"⚠️ Failed to delete {file_path}: {e}")
-
 
 # Singleton instance
 file_service = FileService()

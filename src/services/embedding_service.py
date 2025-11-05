@@ -2,7 +2,7 @@ from typing import List
 import numpy as np
 import logging
 import os
-from src.config import settings
+from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 

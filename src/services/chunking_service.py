@@ -4,7 +4,7 @@ from transformers import AutoTokenizer
 import re
 import logging
 import os
-from src.config import settings
+from src.core.config import settings
 
 
 logger = logging.getLogger(__name__)

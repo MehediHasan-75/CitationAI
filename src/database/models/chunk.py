@@ -115,8 +115,8 @@ class Chunk(BaseModel, TimestampMixin, VectorMixin, SectionHierarchyMixin):
     # ========================================================================
     
     paper = relationship(
-        "paper",
-        back_populates="chunks",
+        "Paper",
+    back_populates="chunks",
         # Why this relationship:
         # - Access paper metadata from chunk: chunk.paper.title
         # - Join queries: Get chunks with paper info

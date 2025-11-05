@@ -3,7 +3,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 from typing import List, Dict, Optional
 import uuid
 import logging
-from src.config import settings
+from src.core.config import settings
 
 logger = logging.getLogger(__name__)
 
