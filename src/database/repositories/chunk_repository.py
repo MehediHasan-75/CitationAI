@@ -23,3 +23,4 @@ class ChunkRepository(BaseRepository[Chunk]):
             chunk.vector_id = vector_id
             chunk.embedding_generated = True
         self.db.commit()
+

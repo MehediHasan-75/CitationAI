@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # Qdrant
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
-    QDRANT_COLLECTION: str = "research_papers"
+    QDRANT_COLLECTION: str ="research_papers"
     
     # Redis
     REDIS_HOST: str = "localhost"

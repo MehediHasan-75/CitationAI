@@ -499,7 +499,6 @@ class PDFProcessorEnhanced:
     def process_document(self, pdf_path: str) -> Optional[ProcessedDocument]:
         """
         Main processing pipeline
-        ✅ NEW: Includes paper_name from PDF filename
         """
         try:
             # Check cache

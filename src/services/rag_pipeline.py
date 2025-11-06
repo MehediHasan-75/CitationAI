@@ -1,7 +1,7 @@
 import ollama
 from typing import List, Dict, Optional
 import time
-from src.models.database import Paper
+from src.database.models import Paper
 
 
 class RAGPipeline:

@@ -1,6 +1,6 @@
 # CitationAI - Complete System Documentation
 
-**A Production-Ready Research Paper RAG System**
+**A Production-Ready Research Paper RAG System with DeepSeek LLM**
 
 ---
 
@@ -13,8 +13,10 @@
 5. [API Guide](#api-guide)
 6. [Service Layer Guide](#service-layer-guide)
 7. [Setup & Configuration](#setup--configuration)
-8. [Troubleshooting](#troubleshooting)
-9. [Best Practices](#best-practices)
+8. [Running Services](#running-services)
+9. [Testing Guide](#testing-guide)
+10. [Troubleshooting](#troubleshooting)
+11. [Best Practices](#best-practices)
 
 ---
 
@@ -47,15 +49,16 @@
 
 ### Technology Stack
 
-| Component | Technology | Why |
-|-----------|-----------|-----|
-| **Backend** | FastAPI | Modern, fast, async-first Python framework |
-| **Database** | SQLite (dev) / PostgreSQL (prod) | Structured data storage |
-| **Vector DB** | Qdrant | Semantic search via embeddings |
-| **ORM** | SQLAlchemy | Type-safe database queries |
-| **Embeddings** | sentence-transformers | Convert text to vectors |
-| **LLM** | Ollama / DeepSeek | Answer generation |
-| **Task Queue** | Celery (optional) | Background processing |
+| Component | Technology | Version | Why |
+|-----------|-----------|---------|-----|
+| **Backend** | FastAPI | 0.104+ | Modern, fast, async-first Python framework |
+| **Database** | SQLite (dev) / PostgreSQL (prod) | Latest | Structured data storage |
+| **Vector DB** | Qdrant | 1.7+ | Semantic search via embeddings |
+| **ORM** | SQLAlchemy | 2.0+ | Type-safe database queries |
+| **Embeddings** | sentence-transformers | Latest | Convert text to vectors |
+| **LLM** | Ollama + DeepSeek | 0.12.7+ | Local LLM inference |
+| **PDF Processing** | pdfplumber / pypdf | Latest | Extract text from PDFs |
+| **Web Framework** | Uvicorn | Latest | ASGI server |
 
 ---
 
@@ -69,15 +72,15 @@ git clone <repo-url>
 cd CitationAI
 
 # Create virtual environment
-python -m venv venv
-source venv/bin/activate  # macOS/Linux
-# or: venv\Scripts\activate  # Windows
+python -m venv .venv
+source .venv/bin/activate  # macOS/Linux
+# or: .venv\Scripts\activate  # Windows
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Install Alembic for migrations
-pip install alembic
+# Verify installation
+python -c "import src; print('✅ Ready!')"
 ```
 
 ### 2️⃣ **Configuration**
@@ -87,48 +90,54 @@ pip install alembic
 cp .env.example .env
 
 # Edit .env with your settings
+# Key settings:
 # DATABASE_URL=sqlite:///./citationai.db
-# DEBUG=True
 # QDRANT_HOST=localhost
-# etc.
+# QDRANT_PORT=6333
+# OLLAMA_MODEL=deepseek-r1:8b
+# OLLAMA_URL=http://localhost:11434
 ```
 
-### 3️⃣ **Database Setup**
+### 3️⃣ **Start Services**
 
 ```bash
-# Initialize database (creates tables)
-python -c "from src.database.session import init_db; init_db()"
+# Terminal 1: Start Qdrant (vector database)
+docker run -d --name qdrant \
+  -p 6333:6333 \
+  --restart unless-stopped \
+  qdrant/qdrant
 
-# Or using Alembic (migrations)
-alembic revision --autogenerate -m "Initial tables"
-alembic upgrade head
-```
-
-### 4️⃣ **Start Services**
-
-```bash
-# Terminal 1: Start PostgreSQL/SQLite database
-# (Skip if using SQLite - it's already local)
-
-# Terminal 2: Start Qdrant vector database
-docker run -d --name qdrant -p 6333:6333 qdrant/qdrant
-
-# Terminal 3: Start LLM service (Ollama)
+# Terminal 2: Start Ollama (LLM service)
 ollama serve
 
-# Terminal 4: Start FastAPI server
+# Terminal 3: Initialize database
+python -c "from src.database.session import init_db; init_db()"
+
+# Terminal 4: Start FastAPI
 uvicorn src.main:app --reload
 ```
 
-### 5️⃣ **Test API**
+### 4️⃣ **Download LLM Model**
 
 ```bash
-# Open in browser
+# In another terminal
+ollama pull deepseek-r1:8b
+
+# Verify
+ollama list | grep deepseek
+# Should show: deepseek-r1:8b    abc123...    5.2 GB
+```
+
+### 5️⃣ **Test System**
+
+```bash
+# Open API docs in browser
 http://localhost:8000/docs
 
-# Or via curl
-curl -X POST "http://localhost:8000/api/papers/upload" \
-  -F "file=@your_paper.pdf"
+# Or test with curl
+curl -X POST "http://localhost:8000/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Test query", "top_k": 5}' | jq .
 ```
 
 ---
@@ -147,6 +156,7 @@ curl -X POST "http://localhost:8000/api/papers/upload" \
 │  - Call service layer                                       │
 │  - Return HTTP responses                                    │
 │  Location: src/api/routers/                                 │
+│  Files: papers.py, queries.py                               │
 └──────────────┬──────────────────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────────────────┐
@@ -158,6 +168,7 @@ curl -X POST "http://localhost:8000/api/papers/upload" \
 │  - Handle complex operations                                │
 │  - No database queries (uses repos)                          │
 │  Location: src/services/                                    │
+│  Files: paper_service.py, rag_pipeline.py                   │
 └──────────────┬──────────────────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────────────────┐
@@ -168,38 +179,48 @@ curl -X POST "http://localhost:8000/api/papers/upload" \
 │  - Insert/update/delete records                             │
 │  - No business logic                                        │
 │  Location: src/repositories/                                │
+│  Files: paper_repository.py, chunk_repository.py            │
 └──────────────┬──────────────────────────────────────────────┘
                │
 ┌──────────────▼──────────────────────────────────────────────┐
-│                   DATABASE LAYER                             │
+│                VECTOR STORE LAYER                            │
 │  ────────────────────────────────────────────────────────  │
-│  - SQLAlchemy ORM                                           │
-│  - Database models                                          │
-│  - Migrations (Alembic)                                     │
-│  Location: src/database/                                    │
+│  - Qdrant vector database                                   │
+│  - Similarity search                                        │
+│  - Embedding storage                                        │
+│  Files: vector_store.py                                     │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+┌──────────────▼──────────────────────────────────────────────┐
+│              EXTERNAL SERVICES LAYER                         │
+│  ────────────────────────────────────────────────────────  │
+│  - SQLite/PostgreSQL (structured data)                      │
+│  - Ollama + DeepSeek (LLM inference)                        │
+│  - sentence-transformers (embeddings)                       │
+│  - File system (PDF storage)                                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Example Data Flow: Paper Upload
+### Example Data Flow: RAG Query
 
 ```
-User uploads paper.pdf
+User asks: "What is attention mechanism?"
        ↓
-API Route receives upload
+API Route receives question
        ↓
-Validates: File is PDF? Size < 50MB?
+Service layer coordinates:
+    ├─ Embedding Service: Convert question to vector
+    ├─ Qdrant Service: Search similar chunks (vector similarity)
+    ├─ Repository: Fetch full chunk details from DB
+    └─ LLM Service: DeepSeek generates answer from chunks
        ↓
-Service layer coordinates upload
-       ├─ File Service: Save to disk
-       ├─ PDF Processor: Extract text
-       ├─ Paper Repository: Create record
-       ├─ Chunk Repository: Save chunks
-       ├─ Embedding Service: Generate vectors
-       └─ Qdrant Service: Store in vector DB
+Response with citations generated
        ↓
-Database updated
+Citation Service: Save to QueryHistory table
        ↓
-Return success response to user
+Return answer + citations to user
+       ↓
+Analytics updated
 ```
 
 ---
@@ -209,23 +230,22 @@ Return success response to user
 ### Model Hierarchy
 
 ```
-┌─────────────────────────────────────────┐
-│          Base Classes & Mixins          │
-├─────────────────────────────────────────┤
-│  • BaseModel (id, __tablename__)        │
-│  • TimestampMixin (created_at, updated_at) │
-│  • VectorMixin (vector_id, embedding)   │
-│  • SectionHierarchyMixin (section info) │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│     Base Classes & Mixins           │
+├─────────────────────────────────────┤
+│  • BaseModel (id, __tablename__)    │
+│  • TimestampMixin (created/updated) │
+│  • VectorMixin (vector_id)          │
+└─────────────────────────────────────┘
        ↓ (inherited by)
-┌─────────────────────────────────────────┐
-│         Entity Models (Tables)          │
-├─────────────────────────────────────────┤
-│  • Paper (research documents)           │
-│  • Chunk (text segments)                │
-│  • QueryHistory (user questions)        │
-│  • Citation (query↔paper links)         │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│       Entity Models (Tables)         │
+├─────────────────────────────────────┤
+│  • Paper (research documents)       │
+│  • Chunk (text segments)            │
+│  • QueryHistory (user questions)    │
+│  • Citation (paper↔query links)     │
+└─────────────────────────────────────┘
 ```
 
 ### Paper Model
@@ -236,18 +256,24 @@ Return success response to user
 - `id` - Auto-increment primary key
 - `paper_name` - Unique identifier from filename
 - `title` - Document title (from PDF metadata)
-- `authors` - List of authors (JSON)
+- `authors` - List of authors (JSON array)
 - `year` - Publication year
-- `keywords` - Research keywords (JSON)
-- `abstract` - Paper summary
+- `keywords` - Research keywords (JSON array)
+- `abstract` - Paper summary text
 - `filename` - Original upload filename
 - `file_path` - Path on disk to PDF
 - `total_pages` - Number of pages
-- `chunk_count` - Number of text chunks
+- `chunk_count` - Number of text chunks created
 - `quality_score` - Extraction quality (0-1)
+- `format_type` - Document format ("standard", etc.)
+- `sections` - Extracted sections (JSON)
 - `processed` - Ready for search? (Boolean)
 - `created_at` - When uploaded
 - `updated_at` - Last modified time
+
+**Relationships**:
+- `chunks` ← One Paper has Many Chunks
+- `citations` ← One Paper cited in Many Queries
 
 **Usage Example**:
 ```python
@@ -255,11 +281,12 @@ Return success response to user
 paper = Paper(
     paper_name="transformer_2017",
     title="Attention Is All You Need",
-    authors=["Vaswani", "Shazeer", ...],
+    authors=["Vaswani", "Shazeer", "Parmar"],
     year=2017,
     filename="attention_is_all_you_need.pdf",
     file_path="/uploads/abc-123-def.pdf",
-    processed=False
+    processed=False,
+    quality_score=0.92
 )
 db.add(paper)
 db.commit()
@@ -274,7 +301,7 @@ db.commit()
 **Represents**: A text segment from a paper (with embeddings)
 
 **Why chunks?**
-- LLMs can't process entire papers (context limits)
+- LLMs can't process entire papers (context window limits)
 - Enables precise, section-level retrieval
 - Better performance (embed smaller pieces)
 - Allows paragraph-level citations
@@ -282,56 +309,54 @@ db.commit()
 **Fields**:
 - `id` - Auto-increment
 - `paper_id` - Foreign key to Paper
-- `chunk_index` - Order in paper
-- `text` - Actual text content (to be embedded)
-- `section` - Section name ("Introduction", etc.)
+- `chunk_index` - Order in paper (0, 1, 2, ...)
+- `text` - Actual text content to embed
+- `section` - Section name ("Introduction", "Methodology", etc.)
 - `section_id` - Hierarchical ID ("3.2.1")
-- `section_level` - Depth (0=main, 1=sub)
+- `section_level` - Depth (0=main, 1=sub, 2=subsub)
 - `page_number` - Physical page in PDF
-- `vector_id` - UUID in Qdrant
-- `embedding_generated` - Processing status
+- `vector_id` - ID in Qdrant (integer)
+- `embedding_generated` - Processing status (Boolean)
 - `created_at` / `updated_at` - Timestamps
+
+**Relationships**:
+- `paper` → Parent Paper record
+- `citations` ← Referenced in queries
 
 **Usage Example**:
 ```python
-# After PDF extraction
+# Create chunks from extracted text
 for section in pdf_sections:
-    chunks = intelligent_chunker.chunk_section(
+    section_chunks = intelligent_chunker.chunk_section(
         section_text=section.text,
-        section_name="Methodology",
-        page_start=15,
-        page_end=20
+        section_name=section.name,
+        page_start=section.page_start,
+        page_end=section.page_end
     )
     
-    for chunk in chunks:
+    for idx, chunk in enumerate(section_chunks):
         db_chunk = Chunk(
             paper_id=paper.id,
-            chunk_index=0,
+            chunk_index=idx,
             text=chunk.text,
-            section="Methodology",
-            section_id="3.2",
-            page_number=15
+            section=section.name,
+            section_id=section.id,
+            page_number=section.page_start
         )
         db.add(db_chunk)
 
 db.commit()
 
-# Generate embeddings
+# Generate embeddings for chunks
 chunks = db.query(Chunk).filter(
     Chunk.paper_id == paper.id,
     Chunk.embedding_generated == False
 ).all()
 
-embeddings = embedding_service.encode_batch(
-    [c.text for c in chunks]
-)
+embeddings = embedding_service.encode_batch([c.text for c in chunks])
+vector_ids = qdrant_service.upsert_chunks(chunks_data, embeddings, paper.id)
 
-# Store in Qdrant
-vector_ids = qdrant_service.upsert_chunks(
-    chunks_data, embeddings, paper.id
-)
-
-# Update database
+# Update with vector IDs
 for chunk, vector_id in zip(chunks, vector_ids):
     chunk.vector_id = vector_id
     chunk.embedding_generated = True
@@ -345,35 +370,41 @@ db.commit()
 
 **Fields**:
 - `id` - Auto-increment
-- `query_text` - User's question
+- `query_text` - User's actual question
 - `answer` - LLM-generated response
 - `response_time` - How long it took (seconds)
 - `confidence` - Answer certainty (0-1)
 - `top_k` - Number of chunks retrieved
-- `user_rating` - User feedback (1-5 stars)
+- `user_rating` - User feedback (1-5 stars, nullable)
 - `created_at` - When asked
+
+**Relationships**:
+- `citations` ← Query has Many Citations
 
 **Usage Example**:
 ```python
-# Save query
+# Save query to history
 query_log = QueryHistory(
     query_text="What is the attention mechanism?",
-    answer="The attention mechanism allows...",
-    response_time=0.5,
+    answer="The attention mechanism is a technique that allows...",
+    response_time=0.534,
     confidence=0.92,
-    top_k=5,
-    user_rating=5
+    top_k=5
 )
 db.add(query_log)
 db.commit()
 
-# Query analytics
+# Get query analytics
 popular_queries = db.query(QueryHistory).order_by(
     QueryHistory.created_at.desc()
 ).limit(10).all()
 
 avg_response_time = db.query(
     func.avg(QueryHistory.response_time)
+).scalar()
+
+avg_confidence = db.query(
+    func.avg(QueryHistory.confidence)
 ).scalar()
 ```
 
@@ -385,18 +416,23 @@ avg_response_time = db.query(
 - `id` - Auto-increment
 - `query_id` - Which query (FK to QueryHistory)
 - `paper_id` - Which paper (FK to Paper)
-- `chunk_id` - Which chunk (FK to Chunk)
 - `relevance_score` - How relevant (0-1)
+- `created_at` - When created
+
+**Relationships**:
+- `query` → Parent QueryHistory
+- `paper` → Referenced Paper
 
 **Usage Example**:
 ```python
-# When answering a query, track which papers were used
-for retrieved_chunk in top_chunks:
+# Track citations when answering a query
+retrieved_chunks = qdrant_service.search(query_vector, top_k=5)
+
+for retrieved in retrieved_chunks:
     citation = Citation(
         query_id=query_log.id,
-        paper_id=retrieved_chunk.paper_id,
-        chunk_id=retrieved_chunk.id,
-        relevance_score=similarity_score
+        paper_id=retrieved['paper_id'],
+        relevance_score=retrieved['score']
     )
     db.add(citation)
 
@@ -408,122 +444,185 @@ popular_papers = db.query(Paper).join(
 ).group_by(Paper.id).order_by(
     func.count(Citation.id).desc()
 ).limit(10).all()
-
-# Citation: "Based on: Paper X (relevance: 0.92)"
-response = {
-    "answer": "The answer is...",
-    "sources": [
-        f"{citation.paper.title} (p. {citation.chunk.page_number})"
-        for citation in citations
-    ]
-}
 ```
 
 ---
 
 ## API Guide
 
-### Upload Paper Endpoint
+### Complete Endpoint Reference
 
-**Endpoint**: `POST /api/papers/upload`
+#### Papers API
 
-**Request**:
+##### Upload Paper
+- **Endpoint**: `POST /api/papers/upload`
+- **Request**: Multipart form with PDF file
+- **Response**: Paper metadata + success status
+- **Status Code**: 201 Created
+
 ```bash
 curl -X POST "http://localhost:8000/api/papers/upload" \
-  -H "Content-Type: multipart/form-data" \
   -F "file=@paper.pdf"
 ```
 
-**Response** (Success - 201):
+**Response**:
 ```json
 {
   "paper_id": 1,
-  "paper_name": "transformer_paper",
+  "paper_name": "transformer_2017",
   "title": "Attention Is All You Need",
   "authors": ["Vaswani", "Shazeer"],
   "year": 2017,
+  "keywords": ["attention", "transformer"],
   "quality_score": 0.92,
+  "format_type": "standard",
+  "sections_extracted": 12,
   "chunks_created": 96,
+  "pages": 15,
   "upload_status": "success",
-  "message": "Successfully uploaded and processed transformer_paper"
+  "message": "Successfully uploaded and processed transformer_2017"
 }
 ```
 
-**Response** (Error - 400):
-```json
-{
-  "detail": "Only PDF files are allowed"
-}
-```
+##### List Papers
+- **Endpoint**: `GET /api/papers`
+- **Query Params**: `skip=0`, `limit=10`, `processed_only=false`
+- **Response**: List of papers with pagination
 
-### List Papers Endpoint
-
-**Endpoint**: `GET /api/papers`
-
-**Query Parameters**:
-- `skip` - Pagination offset (default: 0)
-- `limit` - Results per page (default: 10)
-
-**Example**:
 ```bash
 curl "http://localhost:8000/api/papers?skip=0&limit=10"
 ```
 
-**Response**:
-```json
-{
-  "papers": [
-    {
-      "id": 1,
-      "paper_name": "transformer",
-      "title": "Attention Is All You Need",
-      "processed": true,
-      "chunk_count": 96,
-      "quality_score": 0.92,
-      "created_at": "2025-11-04T10:30:00"
-    }
-  ],
-  "total": 1,
-  "skip": 0,
-  "limit": 10
-}
+##### Get Paper Details
+- **Endpoint**: `GET /api/papers/{paper_id}`
+- **Response**: Complete paper metadata
+
+```bash
+curl "http://localhost:8000/api/papers/1"
 ```
 
-### Get Paper Stats
+##### Get Paper Stats
+- **Endpoint**: `GET /api/papers/{paper_id}/stats`
+- **Response**: Chunk distribution, quality metrics
 
-**Endpoint**: `GET /api/papers/{paper_id}/stats`
-
-**Example**:
 ```bash
 curl "http://localhost:8000/api/papers/1/stats"
 ```
 
-**Response**:
-```json
-{
-  "paper_id": 1,
-  "paper_name": "transformer",
-  "title": "Attention Is All You Need",
-  "chunks_created": 96,
-  "quality_score": 0.92,
-  "processed": true,
-  "uploaded": "2025-11-04T10:30:00"
-}
+##### Get Paper Chunks
+- **Endpoint**: `GET /api/papers/{paper_id}/chunks`
+- **Query Params**: `skip=0`, `limit=20`, `section=Introduction`
+- **Response**: List of text chunks with metadata
+
+```bash
+curl "http://localhost:8000/api/papers/1/chunks?limit=10"
 ```
 
-### Delete Paper
+##### Delete Paper
+- **Endpoint**: `DELETE /api/papers/{paper_id}`
+- **Response**: Success message
+- **What gets deleted**: Paper, chunks, embeddings, file
 
-**Endpoint**: `DELETE /api/papers/{paper_id}`
-
-**Example**:
 ```bash
 curl -X DELETE "http://localhost:8000/api/papers/1"
 ```
 
+#### RAG Query API
+
+##### Ask Question
+- **Endpoint**: `POST /api/query`
+- **Request**: Question, top_k, optional paper_ids
+- **Response**: Answer with citations and confidence
+
+```bash
+curl -X POST "http://localhost:8000/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is the attention mechanism?",
+    "top_k": 5,
+    "paper_ids": [1, 2]
+  }' | jq .
+```
+
 **Response**:
 ```json
 {
-  "status": "deleted"
+  "answer": "The attention mechanism is a technique that allows the model to focus on relevant parts of the input sequence. In the Transformer architecture, it enables parallel processing and captures long-range dependencies effectively.",
+  "citations": [
+    {
+      "chunk_id": 42,
+      "paper_id": 1,
+      "paper_title": "Attention Is All You Need",
+      "section": "Attention Mechanism",
+      "page": 3,
+      "relevance_score": 0.95
+    }
+  ],
+  "sources_used": ["Attention Is All You Need"],
+  "confidence": 0.92,
+  "response_time": 0.534
+}
+```
+
+#### Query History API
+
+##### Get Query History
+- **Endpoint**: `GET /api/queries/history`
+- **Query Params**: `skip=0`, `limit=50`, `days=30`
+- **Response**: List of past queries
+
+```bash
+curl "http://localhost:8000/api/queries/history?limit=10&days=30" | jq .
+```
+
+##### Get Query Details
+- **Endpoint**: `GET /api/queries/{query_id}`
+- **Response**: Full question, answer, citations
+
+```bash
+curl "http://localhost:8000/api/queries/1" | jq .
+```
+
+#### Analytics API
+
+##### Popular Queries
+- **Endpoint**: `GET /api/analytics/popular`
+- **Query Params**: `limit=10`, `days=30`
+- **Response**: Most frequently asked questions
+
+```bash
+curl "http://localhost:8000/api/analytics/popular?limit=10" | jq .
+```
+
+##### Most Cited Papers
+- **Endpoint**: `GET /api/analytics/papers/most-cited`
+- **Query Params**: `limit=10`, `days=30`
+- **Response**: Papers ranked by citation count
+
+```bash
+curl "http://localhost:8000/api/analytics/papers/most-cited?limit=5" | jq .
+```
+
+##### System Statistics
+- **Endpoint**: `GET /api/analytics/stats`
+- **Query Params**: `days=30`
+- **Response**: Overall system metrics
+
+```bash
+curl "http://localhost:8000/api/analytics/stats?days=30" | jq .
+```
+
+**Response**:
+```json
+{
+  "statistics": {
+    "total_queries": 45,
+    "total_papers": 8,
+    "avg_confidence": 0.876,
+    "avg_response_time_seconds": 0.523,
+    "avg_user_rating": 4.5
+  },
+  "period_days": 30
 }
 ```
 
@@ -537,56 +636,73 @@ curl -X DELETE "http://localhost:8000/api/papers/1"
 
 **Location**: `src/services/paper_service.py`
 
-**Methods**:
+**Key Methods**:
 
 ```python
 class PaperService:
-    # Upload and process a new paper
-    async def process_and_save_paper(file: UploadFile) -> dict
+    def process_and_save_paper(file: UploadFile) -> dict
+        # Complete upload workflow
     
-    # Get all papers (paginated)
-    def get_papers(skip: int, limit: int) -> list
+    def get_papers(skip: int, limit: int, processed_only: bool) -> dict
+        # List papers with pagination
     
-    # Get specific paper
-    def get_paper_by_id(paper_id: int) -> dict
+    def get_paper_by_id(paper_id: int) -> Paper
+        # Fetch specific paper
     
-    # Delete paper
-    async def delete_paper(paper_id: int) -> None
+    def delete_paper(paper_id: int) -> None
+        # Delete paper + all associated data
     
-    # Get paper statistics
+    def search_papers(query: str, limit: int) -> dict
+        # Search by title/name
+    
     def get_paper_stats(paper_id: int) -> dict
+        # Statistics and metrics
 ```
 
-**Example Usage**:
+### RAGPipeline
+
+**Purpose**: Coordinates entire RAG workflow
+
+**Location**: `src/services/rag_pipeline.py`
+
+**Key Methods**:
+
 ```python
-from src.services.paper_service import PaperService
-from src.database.session import SessionLocal
-
-db = SessionLocal()
-service = PaperService(db, paper_repo, chunk_repo)
-
-# Upload paper
-result = await service.process_and_save_paper(uploaded_file)
-
-# Get stats
-stats = service.get_paper_stats(paper_id=1)
+class RAGPipeline:
+    def generate_answer(
+        question: str,
+        top_k: int = 5,
+        paper_ids: Optional[List[int]] = None
+    ) -> dict:
+        # 1. Embed question
+        # 2. Search chunks in Qdrant
+        # 3. Fetch chunk details from DB
+        # 4. Call DeepSeek LLM
+        # 5. Format citations
+        # 6. Return answer + metadata
 ```
 
-### FileService
+### VectorStore (Qdrant)
 
-**Purpose**: Handles file I/O (save, delete)
+**Purpose**: Manages vector embeddings and similarity search
 
-**Location**: `src/services/file_service.py`
+**Location**: `src/services/vector_store.py`
 
-**Methods**:
+**Key Methods**:
 
 ```python
-class FileService:
-    # Save uploaded file to disk
-    async def save_upload(file: UploadFile) -> str
+class QdrantService:
+    def upsert_chunks(chunks, embeddings, paper_id) -> List[int]
+        # Store vectors in Qdrant
     
-    # Delete file from disk
-    def delete_file(file_path: str) -> None
+    def search(query_vector, top_k, paper_ids) -> List[Dict]
+        # Similarity search
+    
+    def delete_by_ids(vector_ids) -> None
+        # Delete vectors
+    
+    def health_check() -> bool
+        # Check connection
 ```
 
 ---
@@ -602,6 +718,7 @@ class FileService:
 APP_NAME=CitationAI Research Paper System
 DEBUG=True
 API_VERSION=v1
+LOG_LEVEL=INFO
 
 # Database
 DATABASE_URL=sqlite:///./citationai.db
@@ -610,12 +727,14 @@ DATABASE_URL=sqlite:///./citationai.db
 # Qdrant Vector Database
 QDRANT_HOST=localhost
 QDRANT_PORT=6333
-QDRANT_COLLECTION_NAME=citationai_papers
+QDRANT_COLLECTION=research_papers
+EMBEDDING_DIMENSION=384
 
-# LLM Configuration
+# LLM Configuration (DeepSeek)
 LLM_PROVIDER=ollama
-OLLAMA_MODEL=llama3
+OLLAMA_MODEL=deepseek-r1:8b
 OLLAMA_URL=http://localhost:11434
+OLLAMA_TIMEOUT=120
 
 # Embeddings
 EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
@@ -633,9 +752,8 @@ SIMILARITY_THRESHOLD=0.7
 
 ### Database Setup
 
-**Development** (SQLite - no setup needed):
+**Development** (SQLite):
 ```bash
-# Just run
 python -c "from src.database.session import init_db; init_db()"
 # Creates citationai.db automatically
 ```
@@ -647,196 +765,402 @@ CREATE USER citationai_user WITH PASSWORD 'secure_password';
 GRANT ALL PRIVILEGES ON DATABASE citationai TO citationai_user;
 ```
 
-Then set:
+Then:
 ```bash
 DATABASE_URL=postgresql://citationai_user:secure_password@localhost:5432/citationai
 ```
 
-### Running the Server
+---
 
-**Development**:
+## Running Services
+
+### Service Startup Checklist
+
+#### 1. Docker Qdrant
+
 ```bash
-uvicorn src.main:app --reload
+# Start Qdrant
+docker run -d --name qdrant \
+  -p 6333:6333 \
+  --restart unless-stopped \
+  qdrant/qdrant
+
+# Verify
+curl http://localhost:6333
+# Should return Qdrant info
 ```
 
-**Production**:
+#### 2. Ollama + DeepSeek
+
 ```bash
-gunicorn -w 4 -k uvicorn.workers.UvicornWorker src.main:app
+# Terminal 1: Start Ollama
+ollama serve
+
+# Terminal 2 (different terminal): Pull DeepSeek model
+ollama pull deepseek-r1:8b
+
+# Verify
+ollama list | grep deepseek
+# Should show: deepseek-r1:8b    ...    5.2 GB
+```
+
+#### 3. FastAPI Server
+
+```bash
+# Terminal 3: Start FastAPI
+uvicorn src.main:app --reload
+
+# Verify
+curl http://localhost:8000/docs
+# Opens interactive API documentation
+```
+
+### Startup Script
+
+Create `start_all.sh`:
+
+```bash
+#!/bin/bash
+set -e
+
+echo "🚀 Starting CitationAI Services..."
+
+# 1. Qdrant
+echo "1️⃣ Starting Qdrant..."
+docker start qdrant 2>/dev/null || \
+  docker run -d --name qdrant -p 6333:6333 qdrant/qdrant
+sleep 2
+
+# 2. Ollama
+echo "2️⃣ Starting Ollama..."
+ollama serve > /tmp/ollama.log 2>&1 &
+OLLAMA_PID=$!
+sleep 2
+
+# 3. Check status
+echo "3️⃣ Checking services..."
+curl -s http://localhost:6333 && echo "✅ Qdrant OK" || echo "❌ Qdrant Failed"
+curl -s http://localhost:11434 && echo "✅ Ollama OK" || echo "❌ Ollama Failed"
+
+# 4. FastAPI
+echo "4️⃣ Ready! Starting FastAPI..."
+uvicorn src.main:app --reload
+
+wait $OLLAMA_PID
+```
+
+Run it:
+```bash
+chmod +x start_all.sh
+./start_all.sh
+```
+
+---
+
+## Testing Guide
+
+### Test 1: Check Services Status
+
+```bash
+# Check all services running
+echo "=== Checking Services ==="
+echo "Qdrant: $(curl -s http://localhost:6333 && echo '✅' || echo '❌')"
+echo "Ollama: $(curl -s http://localhost:11434 && echo '✅' || echo '❌')"
+echo "FastAPI: $(curl -s http://localhost:8000/docs && echo '✅' || echo '❌')"
+
+# Check DeepSeek model
+echo "DeepSeek: $(ollama list | grep -q deepseek && echo '✅' || echo '❌')"
+```
+
+### Test 2: Upload Paper
+
+```bash
+# Simple upload
+curl -X POST "http://localhost:8000/api/papers/upload" \
+  -F "file=@paper.pdf" | jq .
+
+# Pretty print
+curl -s -X POST "http://localhost:8000/api/papers/upload" \
+  -F "file=@paper.pdf" | jq '.paper_id, .title, .chunks_created'
+```
+
+### Test 3: Query RAG
+
+```bash
+# Simple query
+curl -X POST "http://localhost:8000/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is this paper about?", "top_k": 5}' | jq .
+
+# Get just the answer
+curl -s -X POST "http://localhost:8000/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is the main contribution?", "top_k": 5}' | jq '.answer'
+
+# Get confidence
+curl -s -X POST "http://localhost:8000/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Explain the methodology", "top_k": 5}' | jq '.confidence'
+```
+
+### Test 4: Query Without API (Python)
+
+Create `test_query.py`:
+
+```python
+from src.services.rag_pipeline import RAGPipeline
+from src.services.vector_store import qdrant_service
+from src.services.embedding_service import embedding_service
+from src.database.session import SessionLocal
+
+db = SessionLocal()
+rag = RAGPipeline(qdrant_service, embedding_service, db)
+
+question = "What is the main topic?"
+result = rag.generate_answer(question, top_k=5)
+
+print(f"❓ Question: {question}")
+print(f"\n📝 Answer:\n{result['answer']}")
+print(f"\n✅ Confidence: {result['confidence']}")
+print(f"⏱️ Response Time: {result['response_time']:.2f}s")
+print(f"\n📚 Sources: {', '.join(result['sources_used'])}")
+
+db.close()
+```
+
+Run: `python test_query.py`
+
+### Test 5: Analytics
+
+```bash
+# Popular queries
+curl "http://localhost:8000/api/analytics/popular?limit=5" | jq .
+
+# Most cited papers
+curl "http://localhost:8000/api/analytics/papers/most-cited?limit=5" | jq .
+
+# System stats
+curl "http://localhost:8000/api/analytics/stats?days=30" | jq '.statistics'
 ```
 
 ---
 
 ## Troubleshooting
 
-### ❌ Error: "Module not found 'src'"
+### ❌ Error: "Connection refused" on Qdrant/Ollama
 
-**Solution**: Ensure you're running from project root:
+**Cause**: Service not running
+
+**Solution**:
 ```bash
-cd /path/to/CitationAI
-python -c "from src.database.session import init_db; init_db()"
+# Check Qdrant
+docker ps | grep qdrant
+docker start qdrant
+
+# Check Ollama
+ps aux | grep ollama
+ollama serve  # Restart
+
+# Check connections
+curl http://localhost:6333
+curl http://localhost:11434
 ```
 
-### ❌ Error: "Cannot import BaseModel from database.base"
+### ❌ Error: "Cannot instantiate typing.Union"
 
-**Solution**: BaseModel should be imported from:
-```python
-from src.database.models.base import BaseModel  # Not from database.base!
-```
+**Cause**: Type annotation issue in Qdrant deletion
 
-### ❌ Error: "SQLite invalid isolation level"
+**Solution**: Already fixed in provided code - use integer IDs for vectors
 
-**Solution**: SQLite doesn't support READ COMMITTED. Session.py auto-detects:
-```python
-if "sqlite" in settings.DATABASE_URL:
-    isolation_level = "SERIALIZABLE"  # SQLite only supports this
-else:
-    isolation_level = "READ COMMITTED"  # PostgreSQL uses this
-```
+### ❌ Error: "Failed to connect to Ollama"
 
-### ❌ Error: "Foreign key associated with column could not find table"
+**Cause**: DeepSeek model not downloaded
 
-**Solution**: Ensure `__tablename__` matches foreign key references:
-```python
-# In Paper model
-class Paper(BaseModel):
-    __tablename__ = "papers"  # Must be explicit!
-
-# In Chunk model
-class Chunk(BaseModel):
-    paper_id = ForeignKey("papers.id")  # Must match Paper.__tablename__
+**Solution**:
+```bash
+ollama pull deepseek-r1:8b
+ollama list | grep deepseek
 ```
 
 ### ❌ Error: "Database is locked"
 
-**Solution**: Multiple processes accessing SQLite. Either:
-1. Use PostgreSQL for production
-2. Reduce concurrency in development
-3. Increase timeout: `DATABASE_URL=sqlite:///./citationai.db?timeout=20`
+**Cause**: SQLite doesn't handle concurrency well
+
+**Solution**:
+```bash
+# Switch to PostgreSQL for production
+DATABASE_URL=postgresql://...
+
+# Or increase SQLite timeout
+DATABASE_URL=sqlite:///./citationai.db?timeout=20
+```
+
+### ❌ Error: "Collection doesn't exist"
+
+**Cause**: Qdrant collection not created
+
+**Solution**:
+```bash
+# Restart FastAPI - it auto-creates collection
+uvicorn src.main:app --reload
+
+# Or manually check
+curl http://localhost:6333/collections
+```
+
+### ❌ Error: "PDF processing returned None"
+
+**Cause**: Invalid PDF or extraction failed
+
+**Solution**:
+- Check PDF is valid
+- Try opening in Adobe Reader first
+- Check logs for specific error
+- Increase CHUNK_SIZE if text is dense
 
 ---
 
 ## Best Practices
 
-### 1. Always Use Dependency Injection
+### 1. **Use Dependency Injection**
 
 ```python
 # ✅ Good
 @router.post("/upload")
-async def upload(file: UploadFile, service: PaperService = Depends(get_service)):
-    return await service.process(file)
+def upload(
+    file: UploadFile,
+    service: PaperService = Depends(get_paper_service)
+):
+    return await service.process_and_save_paper(file)
 
 # ❌ Bad
 @router.post("/upload")
-async def upload(file: UploadFile):
+def upload(file: UploadFile):
     service = PaperService()  # Can't mock for testing
 ```
 
-### 2. Use Type Hints
+### 2. **Type All Functions**
 
 ```python
 # ✅ Good
 def get_paper(paper_id: int) -> Paper:
-    return db.query(Paper).filter_by(id=paper_id).first()
+    return db.query(Paper).filter(Paper.id == paper_id).first()
 
 # ❌ Bad
 def get_paper(paper_id):
-    return db.query(Paper).filter_by(id=paper_id).first()
+    return db.query(Paper).filter(Paper.id == paper_id).first()
 ```
 
-### 3. Batch Database Operations
+### 3. **Batch Database Operations**
 
 ```python
-# ✅ Good - Fast
-chunks_batch = []
+# ✅ Good - Fast (commits once)
+batch = []
 for chunk in chunks:
-    chunks_batch.append(chunk)
-    if len(chunks_batch) >= 10:
-        db.add_all(chunks_batch)
+    batch.append(chunk)
+    if len(batch) >= 10:
+        db.add_all(batch)
         db.commit()
-        chunks_batch = []
+        batch = []
 
-# ❌ Bad - Slow
+# ❌ Bad - Slow (commits for each)
 for chunk in chunks:
     db.add(chunk)
-    db.commit()  # Commits after EVERY chunk!
+    db.commit()
 ```
 
-### 4. Handle Errors Explicitly
+### 4. **Handle Errors Explicitly**
 
 ```python
 # ✅ Good
 try:
     paper = service.get_paper(id)
 except ValueError:
-    raise HTTPException(status_code=404, detail="Paper not found")
-except DatabaseError:
-    logger.error(f"Database error: {e}")
+    raise HTTPException(status_code=404)
+except DatabaseError as e:
+    logger.error(f"DB error: {e}")
     raise HTTPException(status_code=500)
 
 # ❌ Bad
 try:
     paper = service.get_paper(id)
-except:  # Catches everything!
+except:
     pass
 ```
 
-### 5. Log Important Events
+### 5. **Use Logging**
+
+```python
+import logging
+logger = logging.getLogger(__name__)
+
+# ✅ Good
+logger.info(f"Paper uploaded: {paper_name}")
+logger.warning(f"Low quality: {score}")
+logger.error(f"Failed: {error}", exc_info=True)
+
+# ❌ Bad
+print("Done")  # Can't filter, control level
+```
+
+### 6. **Validate Input**
 
 ```python
 # ✅ Good
-logger.info(f"Paper uploaded: {paper_name}")
-logger.warning(f"Low quality score: {quality_score}")
-logger.error(f"Processing failed: {error}", exc_info=True)
+def validate_pdf_file(file: UploadFile):
+    if not file.filename.endswith('.pdf'):
+        raise ValueError("Only PDF files allowed")
+    if file.size > 50 * 1024 * 1024:
+        raise ValueError("File too large")
 
 # ❌ Bad
-print("Done")  # Can't control level, format, or filter
+def upload(file: UploadFile):
+    process(file)  # No validation
 ```
 
-### 6. Use Connection Pooling
+---
 
-```python
-# Already configured in session.py
-engine = create_engine(
-    DATABASE_URL,
-    pool_size=10,        # Keep 10 connections ready
-    max_overflow=20,     # Allow up to 20 more on demand
-    pool_pre_ping=True,  # Test before using
-    pool_recycle=3600    # Recycle after 1 hour
-)
-```
+## Deployment Checklist
+
+- [ ] Set `DEBUG=False` in `.env`
+- [ ] Use PostgreSQL instead of SQLite
+- [ ] Set strong database passwords
+- [ ] Configure TLS for database connections
+- [ ] Set up automated backups
+- [ ] Use Gunicorn for production server
+- [ ] Configure reverse proxy (nginx)
+- [ ] Set up monitoring and logging (ELK, DataDog)
+- [ ] Use environment-specific configs
+- [ ] Test all endpoints in staging
+- [ ] Set up CI/CD pipeline
+- [ ] Document deployment procedure
 
 ---
 
 ## Summary
 
-**Key Files to Understand**:
+**Key Takeaways**:
 
-1. **`src/main.py`** - FastAPI application entry point
-2. **`src/api/routers/papers.py`** - HTTP endpoints
-3. **`src/services/paper_service.py`** - Business logic
-4. **`src/repositories/`** - Database operations
-5. **`src/database/models/`** - Data models
-6. **`src/core/config.py`** - Configuration
+1. **Architecture**: 3-tier layered (API → Service → Repository → DB)
+2. **Workflow**: Upload → Extract → Chunk → Embed → Store → Search → Answer
+3. **Technology**: FastAPI + SQLite/PostgreSQL + Qdrant + Ollama DeepSeek
+4. **API First**: RESTful endpoints for all operations
+5. **Analytics Built-in**: Track queries and citations
 
-**Typical Development Flow**:
+**Quick Reference**:
 
-1. Define model in `src/database/models/`
-2. Create repository in `src/repositories/`
-3. Create service in `src/services/`
-4. Create API routes in `src/api/routers/`
-5. Test via `/docs` or curl
+| Task | Command |
+|------|---------|
+| Start all | `./start_all.sh` |
+| Upload paper | `POST /api/papers/upload` |
+| Ask question | `POST /api/query` |
+| View analytics | `GET /api/analytics/stats` |
+| Query directly | `python query_rag.py` |
 
-**Deployment Checklist**:
+**Next Steps**:
 
-- [ ] Set `DEBUG=False` in `.env`
-- [ ] Use PostgreSQL instead of SQLite
-- [ ] Set strong database password
-- [ ] Configure TLS for connections
-- [ ] Set up backups
-- [ ] Use Gunicorn for server
-- [ ] Configure reverse proxy (nginx)
-- [ ] Set up monitoring/logging
+1. Upload research papers
+2. Ask questions about them
+3. Review analytics
+4. Iterate and improve
 
----
-
-**Happy coding! 🚀**

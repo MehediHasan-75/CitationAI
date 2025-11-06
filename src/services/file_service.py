@@ -13,7 +13,7 @@ class FileService:
     def __init__(self):
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     
-    def save_upload(self, file: UploadFile) -> str:  # ✅ Changed from async def to def
+    def save_upload(self, file: UploadFile) -> str:  
         """
         Save uploaded file to disk with unique filename.
         
@@ -26,7 +26,6 @@ class FileService:
         file_path = os.path.join(settings.UPLOAD_DIR, f"{uuid.uuid4()}.pdf")
         
         try:
-            # ✅ Removed async with - read synchronously
             content = file.file.read()
             
             with open(file_path, "wb") as buffer:
@@ -42,7 +41,7 @@ class FileService:
                 detail=f"File save failed: {str(e)}"
             )
     
-    def delete_file(self, file_path: str) -> None:  # ✅ Already sync, good to go
+    def delete_file(self, file_path: str) -> None:  
         """Delete file from disk"""
         try:
             if os.path.exists(file_path):
