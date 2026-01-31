@@ -1355,23 +1355,6 @@ def upload(file: UploadFile):
 
 ---
 
-## Deployment Checklist
-
-- [ ] Set `DEBUG=False` in `.env`
-- [ ] Use PostgreSQL instead of SQLite
-- [ ] Set strong database passwords
-- [ ] Configure TLS for database connections
-- [ ] Set up automated backups
-- [ ] Use Gunicorn for production server
-- [ ] Configure reverse proxy (nginx)
-- [ ] Set up monitoring and logging (ELK, DataDog)
-- [ ] Use environment-specific configs
-- [ ] Test all endpoints in staging
-- [ ] Set up CI/CD pipeline
-- [ ] Document deployment procedure
-
----
-
 ## Summary
 
 **Key Takeaways**:
