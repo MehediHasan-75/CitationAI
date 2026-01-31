@@ -10,9 +10,12 @@ build/
 
 # Virtual Environment
 .venv/
+.venv/**
 venv/
+venv/**
 ENV/
 env/
+*.venv
 
 # IDE
 .vscode/
@@ -49,3 +52,4 @@ Thumbs.db
 htmlcov/
 alembic/versions/__pycache__/
 src/directory_contents.txt
+*.db
